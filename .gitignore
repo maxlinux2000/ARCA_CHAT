@@ -1,0 +1,5 @@
+*.gguf
+models/
+vector_db/
+*.deb
+venv/
