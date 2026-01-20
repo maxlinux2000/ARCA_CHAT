@@ -1,0 +1,18 @@
+#!/bin/bash
+# ARCA v12.1 - Orquestador Principal
+# Uso: arca ingest [archivo] | arca ask "[pregunta]" [id_documento]
+
+case "$1" in
+    ingest)
+        shift
+        arca-ingest "$@"
+        ;;
+    ask)
+        shift
+        arca-search "$@"
+        ;;
+    *)
+        echo "Uso: arca {ingest|ask}"
+        echo "Ejemplo: arca ask \"¿Cómo funciona el gasógeno?\" manual_auto"
+        ;;
+esac

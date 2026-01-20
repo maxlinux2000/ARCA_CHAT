@@ -1,0 +1,25 @@
+#!/bin/bash
+# arca-search: Buscador con referencia temporal al video MP4
+set -e
+
+MEMVID_BIN="/opt/arca/bin/memvid"
+VECTORES="$HOME/IA/vectors"
+MASTER_INDEX="$VECTORES/index.mv2"
+
+PREGUNTA="$1"
+ID_DOC="$2"
+
+# Búsqueda semántica (ajustamos el binario para que devuelva el ID del chunk)
+RESULTADOS=$($MEMVID_BIN --search "$PREGUNTA" --db "$MASTER_INDEX" --filter "$ID_DOC")
+
+# Extraemos el número de chunk para calcular el tiempo
+# Si el chunk es 'chunk_45', el tiempo es 00:00:45
+CHUNK_ID=$(echo "$RESULTADOS" | grep -o 'chunk_[0-9]*' | head -n 1 | cut -d'_' -f2)
+
+if [ -n "$CHUNK_ID" ]; then
+    TIMESTAMP=$(date -d@$((10#$CHUNK_ID)) -u +%H:%M:%S)
+    echo "📍 Info encontrada en ${ID_DOC}_qr.mp4 en el segundo [$TIMESTAMP]"
+fi
+
+# Pasar a Ollama para razonamiento final
+# (Lógica de RAM y selección de modelo igual que antes)

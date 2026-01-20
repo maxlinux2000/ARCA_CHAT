@@ -1,0 +1,99 @@
+#!/bin/bash
+# arca-ask v14.7 - Edición con Depuración de Memoria
+set -e
+
+# Configuración de Entorno
+export LC_ALL=es_ES.UTF-8
+export LANG=es_ES.UTF-8
+
+MEMVID_BIN="/opt/arca/bin/memvid"
+VECTORES="$HOME/IA/vectors"
+INDEX_MV2="$VECTORES/index.mv2"
+TEMP_DIR="$HOME/.arca_temp/search"
+FPS=10 
+
+mkdir -p "$TEMP_DIR"
+
+[ -z "$1" ] && echo "Uso: arca ask \"tu pregunta\"" && exit 1
+PREGUNTA="$1"
+
+if [ ${#PREGUNTA} -lt 3 ]; then
+    echo "⚠️ Consulta demasiado corta."
+    exit 1
+fi
+
+echo "🔎 Consultando memoria semántica sobre: $PREGUNTA..."
+
+# --- PUNTO DE CONTROL: Verificamos salida bruta de memvid ---
+RAW_OUT=$($MEMVID_BIN --search "$PREGUNTA" --db "$INDEX_MV2" 2>&1)
+
+# Si la salida está vacía, el motor no encontró nada o la DB está dañada
+if [ -z "$RAW_OUT" ]; then
+    echo "❌ El motor de búsqueda no devolvió ningún resultado."
+    exit 1
+fi
+
+# Buscamos la referencia al fragmento (chunk)
+# Intentamos capturar cualquier línea que mencione el archivo de texto
+RAW_RESULT=$(echo "$RAW_OUT" | grep -iE "chunk_|title:" | head -n 1)
+
+if [ -z "$RAW_RESULT" ]; then
+    echo "⚠️ Coincidencia semántica baja. Resultados brutos del motor:"
+    echo "$RAW_OUT" | head -n 5
+    exit 1
+fi
+
+# 3. Extraer número de chunk
+CHUNK_NUM=$(echo "$RAW_RESULT" | grep -oP 'chunk_\K\d+')
+if [ -z "$CHUNK_NUM" ]; then
+    echo "❌ No se pudo determinar el índice del fragmento en: $RAW_RESULT"
+    exit 1
+fi
+
+CHUNK_INT=$((10#$CHUNK_NUM))
+TIME_SECONDS=$(echo "scale=2; $CHUNK_INT / $FPS" | bc)
+
+echo "📍 Referencia: Chunk $CHUNK_INT -> Tiempo: ${TIME_SECONDS}s"
+
+# 4. Localizar video
+VIDEO_FILE=$(ls $VECTORES/*_qr.mp4 2>/dev/null | head -n 1)
+if [ ! -f "$VIDEO_FILE" ]; then
+    echo "❌ Error: No se encuentra el video de memoria en $VECTORES"
+    exit 1
+fi
+
+# 5. Decodificación QR
+echo "📖 Extrayendo texto del video..."
+TEXTO_CONTEXTO=""
+for offset in "0" "+0.05" "-0.05"; do
+    T_ADJ=$(echo "$TIME_SECONDS + $offset" | bc)
+    ffmpeg -y -ss "$T_ADJ" -i "$VIDEO_FILE" -frames:v 1 "$TEMP_DIR/frame.png" -hide_banner -loglevel error
+    
+    RAW_QR=$(ZXingReader -1 "$TEMP_DIR/frame.png" 2>/dev/null || true)
+    # Limpieza: quitamos el prefijo del formato de QR
+    TEXTO_CONTEXTO=$(echo "$RAW_QR" | sed 's/^[^ ]* //')
+    
+    [ ${#TEXTO_CONTEXTO} -gt 30 ] && break
+done
+
+if [ -z "$TEXTO_CONTEXTO" ]; then
+    echo "❌ Error: Imagen recuperada pero el QR no es legible."
+    exit 1
+fi
+
+# 6. Respuesta con Ollama
+echo "🤖 Generando respuesta basada en el libro..."
+MODELO="llama3.2"
+
+# Prompt optimizado para evitar alucinaciones
+PROMPT="Eres ARCA. Responde a la pregunta usando solo el contexto proporcionado.
+Si el texto tiene errores, interprétalo.
+
+CONTEXTO RECUPERADO:
+$TEXTO_CONTEXTO
+
+PREGUNTA:
+$PREGUNTA"
+
+echo -e "$PROMPT" | ollama run "$MODELO"
+
