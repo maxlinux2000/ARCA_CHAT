@@ -1,0 +1,60 @@
+#!/bin/bash
+# 5_install.sh - Instalador Final con Configuración de IA Dual
+set -e
+
+echo "--- Instalando Paquetes locales ---"
+# Instalación del motor principal en Rust
+sudo dpkg -i "$HOME/public_html/memvid/arca-memvid_amd64.deb"
+sudo apt install -y -f # Corregir dependencias faltantes
+sudo apt install -y jq poppler-utils antiword bc # Añadido 'bc' para telemetría
+
+# 1. Configuración de Concurrencia para Ollama (Debian 12)
+echo "--- Optimizando Ollama para ejecución simultánea ---"
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/override.conf <<EOF
+[Service]
+Environment="OLLAMA_MAX_LOADED_MODELS=2"
+Environment="OLLAMA_NUM_PARALLEL=2"
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+
+# 2. Creación del Modelo Especialista Extractor
+echo "--- Creando modelo arca-extractor (Gemma 2b) ---"
+# Aseguramos que la base existe
+ollama pull gemma2:2b > /dev/null
+
+cat <<EOF > especialista.mf
+FROM gemma2:2b
+PARAMETER temperature 0
+PARAMETER repeat_penalty 1.4
+PARAMETER num_predict 20
+SYSTEM Extrae exclusivamente las 3 palabras clave técnicas de la frase proporcionada. Responde solo con las palabras separadas por espacios, sin listas ni explicaciones.
+EOF
+
+ollama create arca-extractor -f especialista.mf > /dev/null
+rm especialista.mf
+
+# 3. Configuración de carpetas y binarios
+mkdir -p "$HOME/IA/vectors" "$HOME/IA/docs" "$HOME/.local/bin"
+
+# Copia de los scripts del proyecto
+cp ./arca "$HOME/.local/bin/"
+cp ./arca-ingest "$HOME/.local/bin/"
+cp ./arca-search "$HOME/.local/bin/"
+cp ./arca-ask "$HOME/.local/bin/"
+cp ./arca-chat "$HOME/.local/bin/" # Añadimos el nuevo chat v24.0
+
+chmod +x "$HOME/.local/bin/arc*"
+
+echo "===================================================================="
+echo "✅ INSTALACIÓN COMPLETADA EXITOSAMENTE"
+echo "===================================================================="
+echo "Configuración aplicada:"
+echo "  - Motor RAG: memvid (Rust)"
+echo "  - IA Extracción: arca-extractor (Cargada)"
+echo "  - IA Respuesta: Configurable en arca.conf"
+echo "  - Concurrencia: Habilitada (2 modelos simultáneos)"
+echo "--------------------------------------------------------------------"
+echo "Prueba el sistema con el comando: arca-chat"

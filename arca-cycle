@@ -1,0 +1,27 @@
+#!/bin/bash
+# arca-cycle - Iterador de archivos para el proyecto ARCA_CHAT
+
+# Comprobamos si se pasaron argumentos
+if [ $# -eq 0 ]; then
+    echo "Error: No se han proporcionado archivos o la ruta es incorrecta."
+    echo "Uso: arca-cycle /ruta/a/la/carpeta/*.pdf"
+    exit 1
+fi
+
+# El shell expande automáticamente el asterisco (*.pdf) 
+# y nos entrega una lista de argumentos que recorremos con $@
+for NombreDocumento in "$@"; do
+    
+    # Verificamos que sea un archivo real (por si el glob no encuentra nada)
+    if [ -f "$NombreDocumento" ]; then
+        
+        # Imprimimos la variable tal como pediste
+        echo "$NombreDocumento"
+
+        # Aquí es donde más adelante pondremos la llamada a arca-ingest:
+        # arca-ingest "$NombreDocumento"
+        ./arca-ingest "$NombreDocumento"
+
+    fi
+
+done

@@ -1,0 +1,54 @@
+#!/bin/bash
+# Hunter (arca) v2.0 - Filtro de Relevancia Integrado
+# --------------------------------------------------------------
+
+source "$HOME/IA/arca.conf"
+: "${VECTORES:=$HOME/IA/vectors}"
+: "${FPS:=10}"
+
+# Recibe: $1 = ID_CHUNK, $2 = KEYWORDS (opcional)
+FULL_ID="$1"
+KEYWORDS="$2"
+[ -z "$FULL_ID" ] && exit 1
+
+# 1. Localización del archivo de video
+VIDEO_PREFIX=$(echo "$FULL_ID" | sed 's/\(.*\)_chunk_.*/\1/')
+VIDEO_FILE="$VECTORES/${VIDEO_PREFIX}_qr.mp4"
+
+# 2. Cálculo del tiempo exacto
+CHUNK_NUM=$(echo "$FULL_ID" | grep -oP 'chunk_\K\d+' | sed 's/^0*//')
+[ -z "$CHUNK_NUM" ] && CHUNK_NUM=0
+TIME_SECONDS=$(echo "scale=2; $CHUNK_NUM / $FPS" | bc -l)
+
+# 3. Extracción rápida del frame
+TEMP_FRAME="/tmp/hunter_$(date +%s).png"
+ffmpeg -y -ss "$TIME_SECONDS" -i "$VIDEO_FILE" -frames:v 1 "$TEMP_FRAME" -loglevel quiet >/dev/null 2>&1
+
+if [ -f "$TEMP_FRAME" ]; then
+    # 4. Decodificación del QR
+    RAW_TEXT=$(ZXingReader -1 "$TEMP_FRAME" 2>/dev/null | sed 's/^[^ ]* //' || echo "")
+    
+    if [ -n "$RAW_TEXT" ]; then
+        # Corregir Unicode
+        CLEAN_TEXT=$(echo "$RAW_TEXT" | python3 -c "
+import sys, re
+def fix(m): return chr(int(m.group(1), 16))
+print(re.sub(r'<U\+([0-9A-Fa-f]+)>', fix, sys.stdin.read()).strip())")
+
+        # --- NUEVO: FILTRO DE RELEVANCIA INTERNO ---
+        if [ -n "$KEYWORDS" ]; then
+            MATCH=false
+            for word in $KEYWORDS; do
+                if echo "$CLEAN_TEXT" | grep -iq "$word"; then MATCH=true; break; fi
+            done
+            
+            if [ "$MATCH" = true ]; then
+                echo "$CLEAN_TEXT"
+            fi
+        else
+            # Si no hay keywords, devolvemos todo (comportamiento normal)
+            echo "$CLEAN_TEXT"
+        fi
+    fi
+    rm "$TEMP_FRAME"
+fi

@@ -1,0 +1,32 @@
+#!/bin/bash
+# Hunter v2.1 - Recuperador de Contexto para arca-chat
+source "$HOME/IA/arca.conf"
+: "${VECTORES:=$HOME/IA/vectors}"
+: "${FPS:=10}"
+
+# Ahora recibe palabras clave directamente
+KEYWORDS="$1"
+[ -z "$KEYWORDS" ] && exit 0
+
+# 1. Busca en memvid el fragmento más relevante
+RAW_OUT=$(/opt/arca/bin/memvid --search "$KEYWORDS" --db "$VECTORES/index.mv2" 2>/dev/null | head -n 1)
+[ -z "$RAW_OUT" ] && exit 0
+
+# 2. Extrae Metadatos
+FULL_ID=$(echo "$RAW_OUT" | sed -n 's/.*ID: \(.*\) | TEXT: .*/\1/p')
+VIDEO_PREFIX=$(echo "$FULL_ID" | sed 's/\(.*\)_chunk_.*/\1/')
+VIDEO_FILE="$VECTORES/${VIDEO_PREFIX}_qr.mp4"
+
+# 3. Cálculo de tiempo y extracción de Frame
+CHUNK_NUM=$(echo "$FULL_ID" | grep -oP 'chunk_\K\d+' | sed 's/^0*//')
+TIME_SECONDS=$(echo "scale=2; ${CHUNK_NUM:-0} / $FPS" | bc -l)
+
+TEMP_FRAME="/tmp/hunter_$(date +%s).png"
+ffmpeg -y -ss "$TIME_SECONDS" -i "$VIDEO_FILE" -frames:v 1 "$TEMP_FRAME" -loglevel quiet >/dev/null 2>&1
+
+# 4. Decodificación QR y salida limpia
+if [ -f "$TEMP_FRAME" ]; then
+    RAW_TEXT=$(ZXingReader -1 "$TEMP_FRAME" 2>/dev/null | sed 's/^[^ ]* //' || echo "")
+    [ -n "$RAW_TEXT" ] && echo "$RAW_TEXT" | python3 -c "import sys, re; print(re.sub(r'<U\+([0-9A-Fa-f]+)>', lambda m: chr(int(m.group(1), 16)), sys.stdin.read()).strip())"
+    rm "$TEMP_FRAME"
+fi

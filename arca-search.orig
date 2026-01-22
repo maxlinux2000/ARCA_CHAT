@@ -1,5 +1,5 @@
 #!/bin/bash
-# arca-search v2.2: Filtro de Relevancia y Validación de Palabras Clave
+# arca-search v2.1: Corrección de parseo de metadatos y soporte de caracteres especiales
 set -e
 
 source "$HOME/IA/arca.conf"
@@ -11,47 +11,40 @@ FPS=10
 [ -z "$1" ] && echo "Uso: arca-search \"pregunta\"" && exit 1
 PREGUNTA="$1"
 
-# 1. Búsqueda semántica
+echo "🔎 Buscando coincidencias exactas en la biblioteca..."
+
+# 1. Ejecución de la búsqueda y captura de la salida
+# Eliminamos posibles errores de la salida estándar para no ensuciar la variable
 RESULTADOS=$($MEMVID_BIN --search "$PREGUNTA" --db "$MASTER_INDEX" 2>/dev/null | head -n 1)
 
 if [ -z "$RESULTADOS" ]; then
-    echo "❌ No se encontraron evidencias."
+    echo "❌ No se encontraron evidencias para esa consulta."
     exit 1
 fi
 
-# 2. Extracción de Metadatos (Robustez v2.1)
+# 2. Extracción de Metadatos con robustez mejorada
+# Usamos un método más directo para evitar problemas con espacios y caracteres especiales
 ID_DOC=$(echo "$RESULTADOS" | sed -n 's/.*SOURCE: \(.*\) | ID: .*/\1/p')
 CHUNK_FULL_ID=$(echo "$RESULTADOS" | sed -n 's/.*ID: \(.*\) | TEXT: .*/\1/p')
 FRAGMENTO=$(echo "$RESULTADOS" | sed -n 's/.*TEXT: \(.*\)/\1/p')
 
-# 3. --- NUEVO: FILTRO DE INTELIGENCIA ---
-# Extraemos palabras significativas de la pregunta (más de 3 letras)
-PALABRAS_CLAVE=$(echo "$PREGUNTA" | grep -oP '\b\w{4,}\b')
-COINCIDENCIA_REAL=false
-
-for p in $PALABRAS_CLAVE; do
-    if echo "$FRAGMENTO" | grep -iq "$p"; then
-        COINCIDENCIA_REAL=true
-        break
-    fi
-done
-
-# Si la IA me da algo que no contiene ninguna de mis palabras clave, lo rechazamos
-if [ "$COINCIDENCIA_REAL" = false ]; then
-    echo "⚠️  Aviso: Se encontró una coincidencia semántica débil, pero no contiene términos clave."
-    echo "Filtro aplicado: No se encontró rastro de ($PALABRAS_CLAVE) en el documento."
-    exit 1
-fi
-
-# 4. Cálculo de tiempo y salida (Igual que v2.1)
+# 3. Calcular el timestamp basándonos en el número de chunk
+# Extraemos el número final después del último guión bajo o 'chunk_'
 CHUNK_NUM=$(echo "$CHUNK_FULL_ID" | grep -oP 'chunk_\K\d+' | sed 's/^0*//')
 [ -z "$CHUNK_NUM" ] && CHUNK_NUM=0
+
+# Tiempo = Frame (Chunk) / FPS
 TIME_SECONDS=$(echo "scale=2; $CHUNK_NUM / $FPS" | bc -l)
 TIMESTAMP=$(date -d@${TIME_SECONDS%.*} -u +%H:%M:%S 2>/dev/null || echo "00:00:00")
 
-echo -e "\n🎯 EVIDENCIA VALIDADA:"
+# 4. Mostrar informe de localización (Limpiando nombres de archivos)
+# El nombre del video no lleva los paréntesis del título si lo limpiaste en el ingest
+VIDEO_FILE="${ID_DOC}_qr.mp4"
+
+echo -e "\n🎯 EVIDENCIA LOCALIZADA:"
 echo "--------------------------------------------------------------------"
 echo "📖 Libro:    $ID_DOC"
-echo "⏱️  Tiempo:   [$TIMESTAMP]"
+echo "🎥 Archivo:  $VIDEO_FILE"
+echo "⏱️  Tiempo:   [$TIMESTAMP] (segundo $TIME_SECONDS)"
 echo "📝 Fragmento: $FRAGMENTO"
 echo "--------------------------------------------------------------------"

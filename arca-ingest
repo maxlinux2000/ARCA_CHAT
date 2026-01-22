@@ -1,5 +1,5 @@
 #!/bin/bash
-# arca-ingest v13.3 - Soporte Unicode Universal (Perl Edition)
+# arca-ingest v14.1 - Soporte Unicode y Metadatos de Origen
 set -e
 
 MEMVID_BIN="/opt/arca/bin/memvid"
@@ -11,57 +11,58 @@ FPS=10
 
 [ -z "$1" ] && echo "Error: Falta archivo de entrada" && exit 1
 FILE_PATH=$(realpath "$1")
-ID_LIBRO=$(basename "$FILE_PATH" | tr -d ' ' | cut -c 1-10)
+
+# Extraemos el nombre base del libro sin extensiones y sin espacios
+ID_LIBRO=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//' | tr ' ' '_')
 
 rm -rf "$TEMP_DIR"
 mkdir -p "$TEMP_DIR/chunks" "$TEMP_DIR/frames" "$VECTORES"
 
-echo "--- 1. Purificación Universal con Perl (Preservando todos los idiomas) ---"
-# Extraemos el texto (pdftotext suele manejar bien el layout original)
+echo "--- 1. Extracción y Purificación de Texto ---"
 pdftotext -layout "$FILE_PATH" "$TEMP_DIR/raw.txt"
 
-# FILTRO PERL: 
-# \p{Print} conserva cualquier carácter imprimible (incluye acentos, cirílico, chino, etc.)
-# \s conserva espacios y saltos de línea necesarios.
-# Eliminamos caracteres de control que rompen el QR.
+# Usamos Perl para asegurar compatibilidad total con tildes y eñes
 perl -CSD -Mutf8 -pe 's/[^\p{Print}\s]//g' "$TEMP_DIR/raw.txt" | \
 tr -s '[:space:]' ' ' | \
 sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$TEMP_DIR/full.txt"
 
-echo "--- 2. Empaquetado de Chunks (Multilenguaje) ---"
-CH_COUNT=0
+echo "--- 2. Fragmentación con Etiquetado de Origen ---"
+CH_COUNT=1
 CURRENT_SIZE=0
-# Importante: medimos bytes reales para el límite del código QR
 while read -r word; do
     WORD_SIZE=$(echo -n "$word " | wc -c)
     if [ $((CURRENT_SIZE + WORD_SIZE)) -gt $MAX_BYTES ]; then
         CH_COUNT=$((CH_COUNT + 1))
-        TARGET_FILE="$TEMP_DIR/chunks/chunk_$(printf "%06d" $CH_COUNT).txt"
-        echo -n "$word " > "$TARGET_FILE"
-        CURRENT_SIZE=$WORD_SIZE
-    else
-        echo -n "$word " >> "$TEMP_DIR/chunks/chunk_$(printf "%06d" $CH_COUNT).txt"
-        CURRENT_SIZE=$((CURRENT_SIZE + WORD_SIZE))
+        CURRENT_SIZE=0
     fi
+    
+    # El archivo se llama: NombreLibro_chunk_000001.txt
+    TARGET_FILE="$TEMP_DIR/chunks/${ID_LIBRO}_chunk_$(printf "%06d" $CH_COUNT).txt"
+    echo -n "$word " >> "$TARGET_FILE"
+    CURRENT_SIZE=$((CURRENT_SIZE + WORD_SIZE))
 done < <(cat "$TEMP_DIR/full.txt" | tr ' ' '\n')
 
-echo "--- 3. Generación QR (ZXingWriter UTF-8) ---"
+echo "--- 3. Generación de Evidencia Visual (QR) ---"
 cd "$TEMP_DIR/chunks"
 for f in *.txt; do
-    NUM=$(echo "$f" | cut -d'_' -f2 | cut -d'.' -f1)
-    # ZXingWriter inyecta el contenido respetando el encoding UTF-8
+    # Sacamos el número de chunk para el nombre del frame
+    NUM=$(echo "$f" | grep -oP '\d+')
     ZXingWriter -size 1024x1024 -margin 2 -ecc 0 -encoding UTF-8 QRCode "$(cat "$f")" "$TEMP_DIR/frames/frame_$NUM.png"
 done
 
-echo "--- 4. Creación de Video (10 FPS / Nitidez Máxima) ---"
+echo "--- 4. Compresión de Video de Referencia ---"
 cd "$TEMP_DIR/frames"
 ffmpeg -y -framerate $FPS -pattern_type glob -i "*.png" \
        -vf "scale=1024:-1:flags=neighbor" \
        -c:v libx264 -crf 18 -pix_fmt yuv420p \
        "$VECTORES/${ID_LIBRO}_qr.mp4" -hide_banner -loglevel error
 
-echo "--- 5. Sincronización del Índice ---"
-$MEMVID_BIN --output-index "$MASTER_INDEX" --input-dir "$TEMP_DIR/chunks" --doc-id "$ID_LIBRO" --fps $FPS
+echo "--- 5. Sincronización con Base de Datos Vectorial ---"
+# El binario nuevo asigna el nombre del archivo al ID y la parte inicial al Título
+$MEMVID_BIN --output-index "$MASTER_INDEX" --input-dir "$TEMP_DIR/chunks"
 
-echo "✅ FINALIZADO. Sistema compatible con Español, Portugués, Ruso y Chino."
+echo "✅ PROCESO COMPLETADO"
+echo "Libro: $ID_LIBRO"
+echo "Video: $VECTORES/${ID_LIBRO}_qr.mp4"
+
 

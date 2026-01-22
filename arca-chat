@@ -1,0 +1,51 @@
+#!/bin/bash
+# arca-chat v24.3 - Telemetría Simplificada (Enteros)
+source "$HOME/IA/arca.conf"
+OPERADOR=$(whoami)
+MODELO_EXTRACTOR="arca-extractor"
+
+clear
+echo "===================================================================="
+echo "   🛡️  SISTEMA ARCA - NÚCLEO v24.3"
+echo "===================================================================="
+
+while true; do
+    echo -ne "\n👤 *$OPERADOR*: "
+    # -re habilita la edición de línea y el historial con flechas
+    read -re PREGUNTA
+    [[ "$PREGUNTA" =~ ^(/)?(salir|exit|quit)$ ]] && break
+    [ -z "$PREGUNTA" ] && continue
+
+    # --- PASO 1: Refinado (Gemma 2b Especialista) ---
+    T1_START=$(date +%s)
+    # El modelo 'arca-extractor' ya tiene los parámetros optimizados
+    KEYWORDS=$(ollama run "$MODELO_EXTRACTOR" "$PREGUNTA" 2>/dev/null | tr -d '*•-' | sed 's/[[:punct:]]//g' | xargs)
+    T1_END=$(date +%s)
+    T1_TOTAL=$((T1_END - T1_START))
+
+    # --- PASO 2: Hunter (Búsqueda en Manuales PDF) ---
+    # Hunter busca coincidencias físicas en los videos con QR
+    CONTEXTO=$(timeout 7s ./hunter "$KEYWORDS" 2>/dev/null)
+
+    # --- PASO 3: Respuesta Final (Llama 3.2) ---
+    T3_START=$(date +%s)
+    if [ -n "$CONTEXTO" ]; then
+        PROMPT="Responde brevemente usando este CONTEXTO técnico:\n$CONTEXTO\n\nPregunta: $PREGUNTA"
+        FUENTE="Manuales Locales"
+    else
+        PROMPT="Responde brevemente a: $PREGUNTA"
+        FUENTE="IA General"
+    fi
+
+    RESPUESTA=$(echo -e "$PROMPT" | ollama run "$MODELO")
+    T3_END=$(date +%s)
+    T3_TOTAL=$((T3_END - T3_START))
+
+    # --- SALIDA FINAL ---
+    echo -e "\n$RESPUESTA"
+    
+    # Formateo visual limpio sin decimales
+    echo -e "\n📚 Fuente: $FUENTE | 🔑 Keys: [$KEYWORDS]"
+    echo -e "⏱️  Refinado: ${T1_TOTAL}s ($MODELO_EXTRACTOR) | Respuesta: ${T3_TOTAL}s ($MODELO)"
+    echo -e "--------------------------------------------------------------------"
+done

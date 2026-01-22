@@ -1,99 +1,62 @@
 #!/bin/bash
-# arca-ask v14.7 - Edición con Depuración de Memoria
-set -e
+# arca-chat v16.8 - Orquestador con Metadatos SOURCE/ID
+# --------------------------------------------------
 
-# Configuración de Entorno
-export LC_ALL=es_ES.UTF-8
-export LANG=es_ES.UTF-8
-
-MEMVID_BIN="/opt/arca/bin/memvid"
+CONF_FILE="$HOME/IA/arca.conf"
+source "$CONF_FILE"
 VECTORES="$HOME/IA/vectors"
+MEMVID_BIN="/opt/arca/bin/memvid"
 INDEX_MV2="$VECTORES/index.mv2"
-TEMP_DIR="$HOME/.arca_temp/search"
-FPS=10 
 
-mkdir -p "$TEMP_DIR"
+clear
+echo "===================================================================="
+echo "   🛡️  SISTEMA ARCA - NÚCLEO OPERATIVO v16.8"
+echo "        CEREBRO: $MODELO | RASTREADOR: Hunter v1.8"
+echo "===================================================================="
 
-[ -z "$1" ] && echo "Uso: arca ask \"tu pregunta\"" && exit 1
-PREGUNTA="$1"
+while true; do
+    echo -ne "\n👤 **Operador:** "
+    read -r PREGUNTA
 
-if [ ${#PREGUNTA} -lt 3 ]; then
-    echo "⚠️ Consulta demasiado corta."
-    exit 1
-fi
+    [[ "$PREGUNTA" =~ ^(/)?(salir|exit|quit)$ ]] && break
+    [ -z "$PREGUNTA" ] && continue
+    echo -ne "🔎 *Consultando archivos...*"
 
-echo "🔎 Consultando memoria semántica sobre: $PREGUNTA..."
+    # 1. Búsqueda semántica usando el nuevo formato de salida
+    RAW_OUT=$($MEMVID_BIN --search "$PREGUNTA" --db "$INDEX_MV2" 2>/dev/null)
 
-# --- PUNTO DE CONTROL: Verificamos salida bruta de memvid ---
-RAW_OUT=$($MEMVID_BIN --search "$PREGUNTA" --db "$INDEX_MV2" 2>&1)
+    if [ -z "$RAW_OUT" ]; then
+        echo -ne "\r⚠️  Sin evidencias directas.                             \n"
+        continue
+    fi
 
-# Si la salida está vacía, el motor no encontró nada o la DB está dañada
-if [ -z "$RAW_OUT" ]; then
-    echo "❌ El motor de búsqueda no devolvió ningún resultado."
-    exit 1
-fi
-
-# Buscamos la referencia al fragmento (chunk)
-# Intentamos capturar cualquier línea que mencione el archivo de texto
-RAW_RESULT=$(echo "$RAW_OUT" | grep -iE "chunk_|title:" | head -n 1)
-
-if [ -z "$RAW_RESULT" ]; then
-    echo "⚠️ Coincidencia semántica baja. Resultados brutos del motor:"
-    echo "$RAW_OUT" | head -n 5
-    exit 1
-fi
-
-# 3. Extraer número de chunk
-CHUNK_NUM=$(echo "$RAW_RESULT" | grep -oP 'chunk_\K\d+')
-if [ -z "$CHUNK_NUM" ]; then
-    echo "❌ No se pudo determinar el índice del fragmento en: $RAW_RESULT"
-    exit 1
-fi
-
-CHUNK_INT=$((10#$CHUNK_NUM))
-TIME_SECONDS=$(echo "scale=2; $CHUNK_INT / $FPS" | bc)
-
-echo "📍 Referencia: Chunk $CHUNK_INT -> Tiempo: ${TIME_SECONDS}s"
-
-# 4. Localizar video
-VIDEO_FILE=$(ls $VECTORES/*_qr.mp4 2>/dev/null | head -n 1)
-if [ ! -f "$VIDEO_FILE" ]; then
-    echo "❌ Error: No se encuentra el video de memoria en $VECTORES"
-    exit 1
-fi
-
-# 5. Decodificación QR
-echo "📖 Extrayendo texto del video..."
-TEXTO_CONTEXTO=""
-for offset in "0" "+0.05" "-0.05"; do
-    T_ADJ=$(echo "$TIME_SECONDS + $offset" | bc)
-    ffmpeg -y -ss "$T_ADJ" -i "$VIDEO_FILE" -frames:v 1 "$TEMP_DIR/frame.png" -hide_banner -loglevel error
+    CONTEXTO_UNIFICADO=""
+    LISTADO_FUENTES=""
     
-    RAW_QR=$(ZXingReader -1 "$TEMP_DIR/frame.png" 2>/dev/null || true)
-    # Limpieza: quitamos el prefijo del formato de QR
-    TEXTO_CONTEXTO=$(echo "$RAW_QR" | sed 's/^[^ ]* //')
-    
-    [ ${#TEXTO_CONTEXTO} -gt 30 ] && break
+    # 2. Procesamiento de líneas SOURCE: | ID: | TEXT:
+    while read -r LINEA; do
+        # Extraer campos mediante delimitador '|'
+        S_NAME=$(echo "$LINEA" | awk -F' | ' '{print $1}' | sed 's/SOURCE: //')
+        C_ID=$(echo "$LINEA" | awk -F' | ' '{print $2}' | sed 's/ID: //')
+        
+        echo -ne "\r🎯 *Hunter analizando $S_NAME...* "
+        
+        # Hunter v1.8 localiza el video exacto por el ID
+        TEXTO_REAL=$(./hunter "$C_ID")
+        
+        if [ -n "$TEXTO_REAL" ]; then
+            TEXTO_LIMP=$(echo "$TEXTO_REAL" | sed 's/^QRCode //;s/^"//;s/"$//')
+            CONTEXTO_UNIFICADO+="\n[DOC: $S_NAME | ID: $C_ID]: $TEXTO_LIMP\n"
+            LISTADO_FUENTES+="\n   - $S_NAME ($C_ID)"
+        fi
+    done <<< "$(echo "$RAW_OUT" | head -n 3)"
+
+    # 3. Respuesta de la IA
+    echo -ne "\r🤖 **ARCA redactando informe técnico...** \r"
+    PROMPT="Eres ARCA. Responde brevemente basándote en:\n$CONTEXTO_UNIFICADO\n\nPregunta: $PREGUNTA"
+    RESPUESTA_IA=$(echo -e "$PROMPT" | ollama run "$MODELO")
+
+    echo -e "\n$RESPUESTA_IA"
+    echo -e "\n📚 **Fuentes:**$LISTADO_FUENTES"
+    echo -e "\n--------------------------------------------------------------------"
 done
-
-if [ -z "$TEXTO_CONTEXTO" ]; then
-    echo "❌ Error: Imagen recuperada pero el QR no es legible."
-    exit 1
-fi
-
-# 6. Respuesta con Ollama
-echo "🤖 Generando respuesta basada en el libro..."
-MODELO="llama3.2"
-
-# Prompt optimizado para evitar alucinaciones
-PROMPT="Eres ARCA. Responde a la pregunta usando solo el contexto proporcionado.
-Si el texto tiene errores, interprétalo.
-
-CONTEXTO RECUPERADO:
-$TEXTO_CONTEXTO
-
-PREGUNTA:
-$PREGUNTA"
-
-echo -e "$PROMPT" | ollama run "$MODELO"
-

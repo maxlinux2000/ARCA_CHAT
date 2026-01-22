@@ -1,0 +1,55 @@
+#!/bin/bash
+# arca-config v1.0 - Selector Gráfico de Modelos
+set -e
+
+CONF_FILE="$HOME/IA/arca.conf"
+
+# 1. Obtener la lista de modelos de Ollama
+# Filtramos la cabecera (NAME) y cualquier modelo que contenga "embed"
+MODELOS=$(ollama list | awk 'NR>1 {print $1}' | grep -v "embed")
+
+if [ -z "$MODELOS" ]; then
+    yad --error --title="ARCA - Error" \
+        --text="No se encontraron modelos instalados en Ollama." \
+        --button="Aceptar:0"
+    exit 1
+fi
+
+# 2. Preparar la lista para YAD (formatear como FALSE "modelo1" FALSE "modelo2"...)
+# Marcamos como TRUE el que esté actualmente en el config
+MODELO_ACTUAL=$(grep "^MODELO=" "$CONF_FILE" | cut -d'"' -f2 || echo "")
+
+LISTA_YAD=""
+for m in $MODELOS; do
+    if [ "$m" == "$MODELO_ACTUAL" ]; then
+        LISTA_YAD+="TRUE $m "
+    else
+        LISTA_YAD+="FALSE $m "
+    fi
+done
+
+# 3. Mostrar la interfaz de selección
+SELECCION=$(yad --list --title="Configuración de Núcleo ARCA" \
+    --window-icon="preferences-system" \
+    --text="Selecciona el modelo para usar en la IA:" \
+    --radiolist \
+    --column="Selección" --column="Nombre del Modelo" \
+    --width=450 --height=300 \
+    --button="Cancelar:1" --button="Aplicar:0" \
+    $LISTA_YAD)
+
+# 4. Procesar la selección y actualizar arca.conf
+if [ $? -eq 0 ]; then
+    # Extraemos el nombre del modelo de la salida de yad (viene como "TRUE|modelo|")
+    NUEVO_MODELO=$(echo "$SELECCION" | cut -d'|' -f2)
+    
+    if [ -n "$NUEVO_MODELO" ]; then
+        sed -i "s|^MODELO=.*|MODELO=\"$NUEVO_MODELO\"|" "$CONF_FILE"
+        
+        yad --info --title="ARCA" --timeout=3 \
+            --text="Cerebro actualizado con éxito:\n<b>$NUEVO_MODELO</b>" \
+            --button="Aceptar:0"
+    fi
+else
+    echo "Operación cancelada por el operador."
+fi
