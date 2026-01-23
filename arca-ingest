@@ -1,10 +1,9 @@
 #!/bin/bash
-# arca-ingest v14.1 - Soporte Unicode y Metadatos de Origen
+# arca-ingest v15.1 - Un índice (.mv2) y un video (.mp4) por libro
 set -e
 
 MEMVID_BIN="/opt/arca/bin/memvid"
 VECTORES="$HOME/IA/vectors"
-MASTER_INDEX="$VECTORES/index.mv2"
 TEMP_DIR="$HOME/.arca_temp"
 MAX_BYTES=2100 
 FPS=10 
@@ -12,21 +11,20 @@ FPS=10
 [ -z "$1" ] && echo "Error: Falta archivo de entrada" && exit 1
 FILE_PATH=$(realpath "$1")
 
-# Extraemos el nombre base del libro sin extensiones y sin espacios
+# Extraemos el nombre base limpio para los archivos de salida 
 ID_LIBRO=$(basename "$FILE_PATH" | sed 's/\.[^.]*$//' | tr ' ' '_')
+LIBRO_INDEX="$VECTORES/${ID_LIBRO}.mv2"
+LIBRO_VIDEO="$VECTORES/${ID_LIBRO}.mp4"
 
 rm -rf "$TEMP_DIR"
 mkdir -p "$TEMP_DIR/chunks" "$TEMP_DIR/frames" "$VECTORES"
 
 echo "--- 1. Extracción y Purificación de Texto ---"
 pdftotext -layout "$FILE_PATH" "$TEMP_DIR/raw.txt"
+# Eliminamos caracteres no imprimibles y normalizamos espacios [cite: 6, 7]
+perl -CSD -Mutf8 -pe 's/[^\p{Print}\s]//g' "$TEMP_DIR/raw.txt" | tr -s '[:space:]' ' ' > "$TEMP_DIR/full.txt"
 
-# Usamos Perl para asegurar compatibilidad total con tildes y eñes
-perl -CSD -Mutf8 -pe 's/[^\p{Print}\s]//g' "$TEMP_DIR/raw.txt" | \
-tr -s '[:space:]' ' ' | \
-sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > "$TEMP_DIR/full.txt"
-
-echo "--- 2. Fragmentación con Etiquetado de Origen ---"
+echo "--- 2. Fragmentación ---"
 CH_COUNT=1
 CURRENT_SIZE=0
 while read -r word; do
@@ -35,8 +33,6 @@ while read -r word; do
         CH_COUNT=$((CH_COUNT + 1))
         CURRENT_SIZE=0
     fi
-    
-    # El archivo se llama: NombreLibro_chunk_000001.txt
     TARGET_FILE="$TEMP_DIR/chunks/${ID_LIBRO}_chunk_$(printf "%06d" $CH_COUNT).txt"
     echo -n "$word " >> "$TARGET_FILE"
     CURRENT_SIZE=$((CURRENT_SIZE + WORD_SIZE))
@@ -45,24 +41,24 @@ done < <(cat "$TEMP_DIR/full.txt" | tr ' ' '\n')
 echo "--- 3. Generación de Evidencia Visual (QR) ---"
 cd "$TEMP_DIR/chunks"
 for f in *.txt; do
-    # Sacamos el número de chunk para el nombre del frame
     NUM=$(echo "$f" | grep -oP '\d+')
+    # Generamos frames para el video 
     ZXingWriter -size 1024x1024 -margin 2 -ecc 0 -encoding UTF-8 QRCode "$(cat "$f")" "$TEMP_DIR/frames/frame_$NUM.png"
 done
 
 echo "--- 4. Compresión de Video de Referencia ---"
-cd "$TEMP_DIR/frames"
-ffmpeg -y -framerate $FPS -pattern_type glob -i "*.png" \
-       -vf "scale=1024:-1:flags=neighbor" \
-       -c:v libx264 -crf 18 -pix_fmt yuv420p \
-       "$VECTORES/${ID_LIBRO}_qr.mp4" -hide_banner -loglevel error
+# Salida directa a .mp4 con el nombre del libro 
+ffmpeg -y -framerate $FPS -pattern_type glob -i "$TEMP_DIR/frames/*.png" \
+       -c:v libx264 -pix_fmt yuv420p "$LIBRO_VIDEO" -loglevel error
 
-echo "--- 5. Sincronización con Base de Datos Vectorial ---"
-# El binario nuevo asigna el nombre del archivo al ID y la parte inicial al Título
-$MEMVID_BIN --output-index "$MASTER_INDEX" --input-dir "$TEMP_DIR/chunks"
+echo "--- 5. Generación de Base de Datos Vectorial Individual ---"
+# Creamos un archivo .mv2 independiente para este libro 
+$MEMVID_BIN --output-index "$LIBRO_INDEX" --input-dir "$TEMP_DIR/chunks"
 
+rm -rf "$TEMP_DIR"
 echo "✅ PROCESO COMPLETADO"
 echo "Libro: $ID_LIBRO"
-echo "Video: $VECTORES/${ID_LIBRO}_qr.mp4"
+echo "Vector: $LIBRO_INDEX"
+echo "Video: $LIBRO_VIDEO"
 
 

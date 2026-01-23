@@ -1,5 +1,6 @@
 #!/bin/bash
 # Proyecto: ARCA_CHAT - Script 4: Compilador Memvid (Fix Rust Borrowing E0716)
+# Umbral Dinámico inyectado
 set -e
 
 OUT_DIR="$HOME/public_html/memvid"
@@ -18,10 +19,8 @@ URL_SRC="https://github.com/memvid/memvid/archive/refs/tags/v2.0.134.tar.gz"
 wget -L "$URL_SRC" -O "$OUT_DIR/memvid_v2.0.134_sources.tar.gz"
 tar -xzf "$OUT_DIR/memvid_v2.0.134_sources.tar.gz" -C "$TEMP_BUILD" --strip-components=1
 
-echo "--- 3. Inyectando Lógica ARCA Core (Fix E0716 & E0277) ---"
+echo "--- 3. Inyectando Lógica de Umbral Dinámico ---"
 mkdir -p "$TEMP_BUILD/examples"
-
-
 
 cat << 'RUST' > "$TEMP_BUILD/examples/arca_core.rs"
 use std::env;
@@ -31,8 +30,11 @@ use memvid_core::{Memvid, PutOptions, SearchRequest};
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     
-    // Umbral de similitud: 0.35 (35%)
-    let min_score: f32 = 0.35;
+    // Captura de --threshold dinámico (por defecto 0.35)
+    let min_score: f32 = args.iter().position(|r| r == "--threshold")
+                        .and_then(|pos| args.get(pos + 1))
+                        .and_then(|val| val.parse::<f32>().ok())
+                        .unwrap_or(0.35);
 
     if args.iter().any(|arg| arg == "--search") {
         let query = args.iter().position(|r| r == "--search")
@@ -48,26 +50,22 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         
         let mut mem = Memvid::open(&db_arg)?;
         let request = SearchRequest { 
-            query, top_k: 15, snippet_chars: 500,
+            query, top_k: 50, snippet_chars: 500, // Aumentado top_k para el filtro
             uri: None, scope: None, cursor: None, as_of_frame: None, as_of_ts: None, no_sketch: false,
         };
 
         let response = mem.search(request)?;
         for hit in response.hits {
-            // CORRECCIÓN: Manejo de Option<f32> para el score
-            // Si el score no existe (None), lo tratamos como 0.0
             let current_score = hit.score.unwrap_or(0.0);
 
-            if current_score < min_score { 
-                continue; 
-            }
+            // Filtro matemático de precisión
+            if current_score < min_score { continue; }
 
             let clean = hit.text.replace('\n', " ").replace('\r', " ").trim().to_string();
             if !clean.is_empty() {
                 let chunk_id = hit.uri; 
                 let source_video = hit.title.unwrap_or_else(|| "unknown_video".to_string());
-                
-                println!("SOURCE: {} | ID: {} | TEXT: {}", source_video, chunk_id, clean);
+                println!("SCORE: {:.4} | SOURCE: {} | ID: {} | TEXT: {}", current_score, source_video, chunk_id, clean);
             }
         }
         return Ok(());
@@ -86,14 +84,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let bytes = std::fs::read(&path)?;
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 let full_name = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-                
                 let video_title = full_name.split("_chunk_").next().unwrap_or(&full_name).to_string();
-                
-                let options = PutOptions::builder()
-                    .uri(full_name)
-                    .title(video_title)
-                    .build();
-                
+                let options = PutOptions::builder().uri(full_name).title(video_title).build();
                 mem.put_bytes_with_options(text.as_bytes(), options)?;
             }
         }
@@ -104,25 +96,9 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 }
 RUST
 
-
-
-
-echo "--- 4. Compilando Binario Optimizado ---"
+echo "--- 4. Compilando y Empaquetando .deb ---"
 cd "$TEMP_BUILD"
 cargo build --release --example arca_core
-
-echo "--- 5. Empaquetando .deb ---"
 cp target/release/examples/arca_core "$DEB_ROOT$INSTALL_PATH/$BIN_NAME"
-chmod +x "$DEB_ROOT$INSTALL_PATH/$BIN_NAME"
-
-cat <<EOF > "$DEB_ROOT/DEBIAN/control"
-Package: arca-memvid
-Version: 2.3.0-arca
-Architecture: amd64
-Maintainer: ArcaProject
-Description: Motor vectorial Memvid corregido (Memoria persistente de texto).
-Depends: libssl3
-EOF
-
 dpkg-deb --build "$DEB_ROOT" "$OUT_DIR/arca-memvid_amd64.deb"
-echo "✅ COMPILACIÓN EXITOSA: Todos los errores de memoria de Rust resueltos."
+echo "✅ COMPILACIÓN EXITOSA"

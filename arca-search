@@ -1,57 +1,52 @@
 #!/bin/bash
-# arca-search v2.2: Filtro de Relevancia y Validación de Palabras Clave
+# arca-search v4.2 - Fix comillas desemparejadas y blindaje xargs
 set -e
-
 source "$HOME/IA/arca.conf"
-MEMVID_BIN="/opt/arca/bin/memvid"
 VECTORES="$HOME/IA/vectors"
-MASTER_INDEX="$VECTORES/index.mv2"
-FPS=10
+MEMVID_BIN="/opt/arca/bin/memvid"
+MODELO_EXTRACTOR="arca-extractor"
 
-[ -z "$1" ] && echo "Uso: arca-search \"pregunta\"" && exit 1
+[ -z "$1" ] && exit 0
 PREGUNTA="$1"
 
-# 1. Búsqueda semántica
-RESULTADOS=$($MEMVID_BIN --search "$PREGUNTA" --db "$MASTER_INDEX" 2>/dev/null | head -n 1)
+# PASO 1: Extracción de Keywords
+KEYWORDS=$(ollama run "$MODELO_EXTRACTOR" "$PREGUNTA" 2>/dev/null | tr -d '*•-' | sed 's/[[:punct:]]//g' | xargs)
 
-if [ -z "$RESULTADOS" ]; then
-    echo "❌ No se encontraron evidencias."
-    exit 1
-fi
+# PASO 2: Función de búsqueda modular
+ejecutar_busqueda() {
+    local UMBRAL=$1
+    local RESULTADOS_CICLO=""
+    local FUENTES_CICLO=""
 
-# 2. Extracción de Metadatos (Robustez v2.1)
-ID_DOC=$(echo "$RESULTADOS" | sed -n 's/.*SOURCE: \(.*\) | ID: .*/\1/p')
-CHUNK_FULL_ID=$(echo "$RESULTADOS" | sed -n 's/.*ID: \(.*\) | TEXT: .*/\1/p')
-FRAGMENTO=$(echo "$RESULTADOS" | sed -n 's/.*TEXT: \(.*\)/\1/p')
+    for index_file in "$VECTORES"/*.mv2; do
+        [ -e "$index_file" ] || continue
+        NOMBRE_LIBRO=$(basename "$index_file" .mv2)
+        
+        BUSQUEDA=$($MEMVID_BIN --db "$index_file" --search "$KEYWORDS" --threshold "$UMBRAL" 2>/dev/null)
+        
+        if [ -n "$BUSQUEDA" ]; then
+            RESULTADOS_CICLO+="\n[FUENTE: $NOMBRE_LIBRO (Confianza: $UMBRAL)]\n$BUSQUEDA\n"
+            FUENTES_CICLO+="$NOMBRE_LIBRO "
+        fi
+    done
+    
+    echo -e "---SOURCES---\n$FUENTES_CICLO\n---CONTEXT---\n$RESULTADOS_CICLO"
+}
 
-# 3. --- NUEVO: FILTRO DE INTELIGENCIA ---
-# Extraemos palabras significativas de la pregunta (más de 3 letras)
-PALABRAS_CLAVE=$(echo "$PREGUNTA" | grep -oP '\b\w{4,}\b')
-COINCIDENCIA_REAL=false
+# PASO 3: Lógica de Cascada (80% -> 60% -> 35%)
+echo "---KEYWORDS---"
+echo "$KEYWORDS"
 
-for p in $PALABRAS_CLAVE; do
-    if echo "$FRAGMENTO" | grep -iq "$p"; then
-        COINCIDENCIA_REAL=true
-        break
+# Ciclo 1: Alta Precisión (0.80)
+FINAL_OUTPUT=$(ejecutar_busqueda "0.80")
+# CORRECCIÓN: Usamos grep -q para verificar contenido sin pasar por xargs 
+if ! echo -e "$FINAL_OUTPUT" | sed -n '/---CONTEXT---/,$p' | grep -v -- "---" | grep -q "SCORE:"; then
+    # Ciclo 2: Precisión Media (0.60)
+    FINAL_OUTPUT=$(ejecutar_busqueda "0.60")
+    if ! echo -e "$FINAL_OUTPUT" | sed -n '/---CONTEXT---/,$p' | grep -v -- "---" | grep -q "SCORE:"; then
+        # Ciclo 3: Búsqueda Permisiva (0.35)
+        FINAL_OUTPUT=$(ejecutar_busqueda "0.35")
     fi
-done
-
-# Si la IA me da algo que no contiene ninguna de mis palabras clave, lo rechazamos
-if [ "$COINCIDENCIA_REAL" = false ]; then
-    echo "⚠️  Aviso: Se encontró una coincidencia semántica débil, pero no contiene términos clave."
-    echo "Filtro aplicado: No se encontró rastro de ($PALABRAS_CLAVE) en el documento."
-    exit 1
 fi
 
-# 4. Cálculo de tiempo y salida (Igual que v2.1)
-CHUNK_NUM=$(echo "$CHUNK_FULL_ID" | grep -oP 'chunk_\K\d+' | sed 's/^0*//')
-[ -z "$CHUNK_NUM" ] && CHUNK_NUM=0
-TIME_SECONDS=$(echo "scale=2; $CHUNK_NUM / $FPS" | bc -l)
-TIMESTAMP=$(date -d@${TIME_SECONDS%.*} -u +%H:%M:%S 2>/dev/null || echo "00:00:00")
-
-echo -e "\n🎯 EVIDENCIA VALIDADA:"
-echo "--------------------------------------------------------------------"
-echo "📖 Libro:    $ID_DOC"
-echo "⏱️  Tiempo:   [$TIMESTAMP]"
-echo "📝 Fragmento: $FRAGMENTO"
-echo "--------------------------------------------------------------------"
+echo -e "$FINAL_OUTPUT"

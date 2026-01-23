@@ -11,10 +11,9 @@ sudo apt install -y jq poppler-utils antiword # Herramientas de extracción de t
 mkdir -p "$HOME/IA/vectors" "$HOME/IA/docs" "$HOME/.local/bin"
 
 cp ./arca $HOME/.local/bin/
-cp ./arca-ingest $HOME/.local/bin/
-cp ./arca-search $HOME/.local/bin/
-cp ./arca-ask $HOME/.local/bin/
+cp ./arca-* $HOME/.local/bin/
+cp ./hunter $HOME/.local/bin/
+1
+chmod +x "$HOME/.local/bin/arca*"
 
-
-chmod +x "$HOME/.local/bin/arc*"
 echo "✅ Instalación completada. Prueba con: arca"

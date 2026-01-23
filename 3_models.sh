@@ -24,7 +24,7 @@ FROM gemma2:2b
 PARAMETER temperature 0
 PARAMETER repeat_penalty 1.4
 PARAMETER num_predict 20
-SYSTEM Extrae exclusivamente las 4 palabras clave técnicas de la frase proporcionada. Responde solo con las palabras separadas por espacios, sin listas ni explicaciones. Texto admitido 4 palabras.
+SYSTEM Extrae exclusivamente 4 palabras clave de la frase proporcionada. Responde solo con las palabras separadas por espacios, sin listas ni explicaciones. Texto admitido 4 palabras.
 EOF
 
 ollama create arca-extractor -f especialista.mf
