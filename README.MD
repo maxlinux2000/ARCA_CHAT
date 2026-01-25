@@ -1,42 +1,47 @@
 # ARCA_CHAT: Tu Bibliotecario IA Offline 📚🤖
 
-**ARCA_CHAT** es una solución de inteligencia artificial diseñada para actuar como un bibliotecario personal y privado. A diferencia de los modelos de chat comerciales que dependen de la nube, ARCA_CHAT reside completamente en tu hardware, permitiéndote **dialogar directamente con tus propios documentos, libros y archivos** sin que un solo bit de información salga de tu equipo.
+**ARCA_CHAT** es una solución de inteligencia artificial diseñada para actuar como un bibliotecario personal, privado y resiliente. A diferencia de los modelos de chat comerciales, reside completamente en tu hardware, permitiéndote **dialogar directamente con tus propios documentos, libros y archivos** sin que un solo bit de información salga de tu equipo.
 
-El proyecto nace de la necesidad de rescatar y organizar el conocimiento digital personal, permitiendo que miles de páginas de información acumulada se vuelvan accesibles y consultables mediante lenguaje natural.
+El proyecto nace de la necesidad de rescatar, organizar y consultar el conocimiento digital personal en un entorno de soberanía tecnológica absoluta.
 
 ---
 
-## 🌟 El Corazón del Proyecto: Diálogo con Documentos
+## 🌟 El Corazón del Proyecto: Diálogo con la Biblioteca
 
-El propósito principal de ARCA_CHAT no es solo "preguntar cosas a la IA", sino establecer un puente interactivo con tu propia biblioteca. 
+El propósito principal de ARCA_CHAT es establecer un puente interactivo con tu propia base de conocimiento (la Biblioteca del Arca):
 
-* **Interacción con Libros:** Puedes preguntarle a ARCA sobre conceptos específicos tratados en un libro de 500 páginas y recibir una respuesta basada exclusivamente en ese texto.
-* **Análisis de Documentación:** Ideal para revisar manuales técnicos, documentos legales o colecciones de archivos personales de manera conversacional.
-* **Soberanía Total:** Tus libros y documentos no son enviados a ningún servidor externo. El "bibliotecario" trabaja a puerta cerrada, garantizando privacidad absoluta.
+* **Interacción con Libros (RAG):** Puedes preguntarle a ARCA sobre conceptos específicos tratados en volúmenes extensos y recibir respuestas basadas exclusivamente en esos textos.
+* **Análisis de Documentación:** Ideal para revisar manuales técnicos, documentos históricos o colecciones personales de manera conversacional.
+* **Soberanía y Privacidad:** El "bibliotecario" trabaja a puerta cerrada. Todo el procesamiento es local, garantizando que el acceso al conocimiento no dependa de servidores externos ni de políticas de terceros.
 
 ---
 
 ## ⚙️ ¿Cómo funciona?
 
-ARCA_CHAT utiliza una arquitectura de **Generación Aumentada por Recuperación** (RAG, por sus siglas en inglés), combinando la potencia de `llama.cpp` para el procesamiento del lenguaje y `Memvid` para la gestión del contexto.
+ARCA_CHAT utiliza una arquitectura de **Generación Aumentada por Recuperación** (RAG), combinando la potencia de procesamiento de lenguaje natural con una gestión de memoria local eficiente.
 
+El proceso se divide en tres etapas:
 
+1.  **Ingesta y Fragmentación:** El sistema procesa tus archivos (PDF, Markdown, Texto plano, etc.) y los divide en fragmentos manejables.
+2.  **Indexación (La Memoria del Arca):** Estos fragmentos se convierten en representaciones numéricas (*embeddings*) almacenadas en una base de datos vectorial local. Esto permite a la IA localizar información relevante en segundos.
+3.  **Consulta y Respuesta:** Al realizar una pregunta, el sistema busca los fragmentos más pertinentes en tu biblioteca y se los entrega al modelo de lenguaje local (`llama.cpp`) para generar una respuesta fundamentada únicamente en tus documentos.
 
-El proceso se divide en tres etapas lógicas:
+Conceptos Avanzados: Atomic-Search y Destilación con Doble IA
 
-1.  **Ingesta y Fragmentación:** El sistema lee tus archivos (PDF, Markdown, Texto plano, etc.) y los divide en pequeños fragmentos manejables.
-2.  **Indexación (La "Memoria"):** Estos fragmentos se convierten en *embeddings* (representaciones numéricas del significado) que se almacenan en una base de datos vectorial local. Esto permite a la IA localizar la información relevante en segundos.
-3.  **Consulta y Respuesta:** Cuando haces una pregunta, el sistema busca en tu base de datos los fragmentos más parecidos a tu consulta. Luego, le entrega esos fragmentos a la IA local (`llama.cpp`) junto con tu pregunta para que pueda responderte basándose **únicamente** en la información encontrada en tus documentos.
+La arquitectura de la Biblioteca del Arca implementa el concepto de Atomic-Search, un método de recuperación que descompone las consultas complejas en unidades mínimas de significado para garantizar que la IA localice el dato exacto, incluso en documentos de miles de páginas donde la semántica puede ser ambigua. Este proceso se potencia mediante una destilación con doble modelo de IA: un primer modelo "Maestro" de gran escala (ej. Llama 70b) se utiliza en una fase previa fuera de línea para etiquetar y destilar el conocimiento crítico de tu biblioteca hacia un modelo "Estudiante" más compacto y eficiente (ej. Mistral o Qwen 8b). Este flujo de doble modelo permite que el "Estudiante", que es el que reside físicamente en tu hardware local, mantenga una precisión técnica excepcional y una lógica de razonamiento superior sin necesidad de los recursos masivos del modelo original, eliminando alucinaciones y optimizando la velocidad de respuesta en el escenario offline del Arca.
+
 
 ---
 
 ## 🛠️ Tecnologías Clave
 
-* **llama.cpp:** El motor que permite ejecutar modelos de lenguaje potentes (formato GGUF) de forma eficiente en hardware doméstico.
-* **Memvid:** Integración para la gestión inteligente de la memoria y el contexto de los documentos.
-* **Privacidad nativa:** Todo el procesamiento ocurre en local, sin necesidad de conexión a internet (offline-first).
+Para asegurar el funcionamiento en hardware doméstico y sistemas aislados (Debian 12 / Raspberry Pi), ARCA_CHAT se apoya en:
+
+* **ollama:** El motor principal para ejecutar modelos de lenguaje potentes con alta eficiencia.
+* **Memvid:** Integración para la gestión inteligente del contexto y la memoria de largo plazo de los documentos.
+* **Instalación Offline:** Uso de scripts para empaquetar dependencias y modelos, permitiendo el despliegue del sistema sin necesidad de conexión a internet.
 
 ---
 
 > [!IMPORTANT]
-> **Estado del proyecto:** ARCA_CHAT se encuentra actualmente "en altamar". El desarrollo está en fase activa de arquitectura y diseño. Los scripts de instalación y despliegue se añadirán una vez que la estructura base sea estable.
+> **Estado del proyecto:** ARCA_CHAT se encuentra actualmente "en altamar". El desarrollo está en fase activa de arquitectura y diseño de la base de datos vectorial. Los scripts de despliegue final se añadirán una vez consolidada la estructura del "Bibliotecario".
