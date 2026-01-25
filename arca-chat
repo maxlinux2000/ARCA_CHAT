@@ -1,11 +1,25 @@
 #!/bin/bash
-# arca-chat v28.2 - Eliminación de errores de grep mediante sed
+# arca-chat v30.4 - Retorno de Debug y Estadísticas Atómicas
 source "$HOME/IA/arca.conf"
 OPERADOR=$(whoami)
 
+# 1. Parámetros de Sistema y Debug
+DEBUG_MODE=true
+[[ "$1" == "--debug" ]] && DEBUG_MODE=true
+
+TOTAL_RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+if [ "$TOTAL_RAM_GB" -ge 15 ]; then
+    VENTANA_CONTEXTO=4096
+    NUM_RESULTADOS=3
+else
+    VENTANA_CONTEXTO=2048
+    NUM_RESULTADOS=2
+fi
+
 clear
 echo "===================================================================="
-echo "   🛡️  SISTEMA ARCA - NÚCLEO v28.2 (Robust Parsing)"
+echo "   🛡️  SISTEMA ARCA - NÚCLEO v30.4 (Atomic-RAG Focus)"
+echo "   📊 RAM: ${TOTAL_RAM_GB}GB | Contexto: ${VENTANA_CONTEXTO} tokens"
 echo "===================================================================="
 
 while true; do
@@ -14,41 +28,50 @@ while true; do
     [[ "$PREGUNTA" =~ ^(/)?(salir|exit|quit)$ ]] && break
     [ -z "$PREGUNTA" ] && continue
 
-    T_START=$(date +%s)
+    T_START=$(date +%s.%N) # Inicio cronómetro
     
-    # --- PASO 1: Delegar búsqueda a arca-search ---
-    RAW_SEARCH=$(./arca-search "$PREGUNTA")
+    echo -ne "🔍 Consultando engramas..."
     
-    # PASO 2: Procesamiento de Metadatos (Usamos sed para limpiar los separadores antes de filtrar)
-    # Eliminamos las líneas que contienen '---' antes de pasarlas a grep o xargs
-    KEYWORDS=$(echo "$RAW_SEARCH" | sed -n '/---KEYWORDS---/,/---SOURCES---/p' | sed '/---/d')
-    
-    # Extraemos fuentes y limpiamos duplicados
-    FUENTES=$(echo "$RAW_SEARCH" | sed -n '/---SOURCES---/,/---CONTEXT---/p' | sed '/---/d' | sort -u | xargs)
-    
-    # --- PASO 3: Filtro de los 2 mejores resultados (Top-2) ---
-    # Extraemos el bloque de CONTEXTO y seleccionamos los 2 scores más altos
-    CONTEXTO_TOP=$(echo -e "$RAW_SEARCH" | sed -n '/---CONTEXT---/,$p' | sed '/---/d' | grep "SCORE:" | sort -rnk2 | head -n 2)
+    # 2. Búsqueda Atómica
+    # Capturamos la salida sin procesar para el debug si es necesario
+    RAW_SEARCH=$(arca-atomic-search "$PREGUNTA")
+    CONTEXTO_RECUPERADO=$(echo "$RAW_SEARCH" | sed -n '/---CONTEXT---/,$p' | sed '/---/d' | grep -v "^$")
 
-    # --- PASO 4: Generación de Respuesta ---
-    if [ -n "$CONTEXTO_TOP" ]; then
-        PROMPT="Responde de forma técnica y breve usando este CONTEXTO (los 2 mejores hallazgos):\n$CONTEXTO_TOP\n\nPregunta: $PREGUNTA"
-        ORIGEN="Manuales Locales (Filtrado Top-2)"
+#echo RAW_SEARCH=$RAW_SEARCH
+#echo CONTEXTO_RECUPERADO=$CONTEXTO_RECUPERADO
+
+    # 3. Construcción del Prompt
+    if [ -n "$CONTEXTO_RECUPERADO" ]; then
+        PROMPT="Actúa como el bibliotecario de la biblioteca del Arca. Responde de forma TÉCNICA, BREVE y DIRECTA basándote exclusivamente en estos recuerdos:
+        
+        $CONTEXTO_RECUPERADO
+        
+        Pregunta: $PREGUNTA"
+        ORIGEN="Memoria Atómica (Engramas)"
     else
-        PROMPT="Responde de forma general a: $PREGUNTA"
-        ORIGEN="IA General"
+        PROMPT="Responde que no tienes información local sobre: $PREGUNTA"
+        ORIGEN="IA (Conocimiento General)"
     fi
 
-    # Ejecución del modelo configurado
-    RESPUESTA=$(echo -e "$PROMPT" | ollama run "$MODELO")
-    T_END=$(date +%s)
-    T_TOTAL=$((T_END - T_START))
+    # 4. MODO DEBUG: Visualización del "Pensamiento" local
+    if [ "$DEBUG_MODE" = true ]; then
+        echo -e "\n\n[DEBUG ARCA - Nivel Atómico]"
+        echo -e "📑 Bloques recuperados ($NUM_RESULTADOS):\n$CONTEXTO_RECUPERADO"
+        echo -e "----------------------------------------------------"
+    fi
 
-    # --- SALIDA FINAL ---
-    echo -e "\n$RESPUESTA"
+    # 5. Inferencia con Ollama
+    echo -ne "\r🤖 Generando respuesta..."
+    RESPUESTA=$(ollama run "$MODELO" "$PROMPT" 2>/dev/null)
+    
+    T_END=$(date +%s.%N)
+    T_TOTAL=$(echo "$T_END - $T_START" | bc) # Cálculo de tiempo total
+
+    # 6. Salida Final y Estadísticas
+    echo -e "\r--- RESPUESTA DEL SISTEMA ---"
+    echo -e "$RESPUESTA"
     echo -e "\n--------------------------------------------------------------------"
-    echo -e "📚 Fuente: $ORIGEN | 🔑 Keys: [$KEYWORDS]"
-    echo -e "📖 Libros: ${FUENTES:-Ninguno}"
-    echo -e "⏱️  Proceso total: ${T_TOTAL}s"
-    echo -e "--------------------------------------------------------------------"
+    echo -e "⏱️  Tiempo: ${T_TOTAL}s | 📚 Origen: $ORIGEN | 🧠 Modelo: $MODELO"
+    echo "--------------------------------------------------------------------"
 done
+

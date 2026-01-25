@@ -1,52 +1,72 @@
 #!/bin/bash
-# arca-search v4.2 - Fix comillas desemparejadas y blindaje xargs
+# arca-search v5.6 - Filtro Anti-Ruido y Blindaje Binario
 set -e
 source "$HOME/IA/arca.conf"
 VECTORES="$HOME/IA/vectors"
 MEMVID_BIN="/opt/arca/bin/memvid"
-MODELO_EXTRACTOR="arca-extractor"
 
 [ -z "$1" ] && exit 0
 PREGUNTA="$1"
 
-# PASO 1: Extracción de Keywords
-KEYWORDS=$(ollama run "$MODELO_EXTRACTOR" "$PREGUNTA" 2>/dev/null | tr -d '*•-' | sed 's/[[:punct:]]//g' | xargs)
+# Extracción de Keywords
+KEYWORDS=$(ollama run arca-extractor "$PREGUNTA" 2>/dev/null | tr -d '*•-' | sed 's/[[:punct:]]//g' | xargs)
 
-# PASO 2: Función de búsqueda modular
 ejecutar_busqueda() {
     local UMBRAL=$1
-    local RESULTADOS_CICLO=""
-    local FUENTES_CICLO=""
+
+    local RESULTADOS_SIN_ORDENAR=""
 
     for index_file in "$VECTORES"/*.mv2; do
         [ -e "$index_file" ] || continue
         NOMBRE_LIBRO=$(basename "$index_file" .mv2)
-        
-        BUSQUEDA=$($MEMVID_BIN --db "$index_file" --search "$KEYWORDS" --threshold "$UMBRAL" 2>/dev/null)
-        
-        if [ -n "$BUSQUEDA" ]; then
-            RESULTADOS_CICLO+="\n[FUENTE: $NOMBRE_LIBRO (Confianza: $UMBRAL)]\n$BUSQUEDA\n"
-            FUENTES_CICLO+="$NOMBRE_LIBRO "
+
+        # Búsqueda vectorial (usamos -a para evitar errores binarios)
+        BUSQUEDA_RAW=$($MEMVID_BIN --db "$index_file" --search "$KEYWORDS" --threshold "$UMBRAL" 2>/dev/null)
+        if [ -n "$BUSQUEDA_RAW" ] && echo "$BUSQUEDA_RAW" | grep -aq "SCORE:"; then
+            while read -r linea; do
+# ... (dentro de ejecutar_busqueda, en el bucle while read -r linea) ...
+
+
+                if [[ "$linea" == *"| "* ]]; then
+                    # 1. Extraer SCORE numérico
+                    VALOR_SCORE=$(echo "$linea" | grep -aoP 'SCORE: \K[0-9.]+' | head -n 1) 
+
+                    # 2. EL BISTURÍ DEFINITIVO:
+                    # Extraemos el contenido tras el primer pipe y aplicamos filtros en cadena ]
+                    CONTENIDO_LIMPIO=$(echo "$linea" | cut -d'|' -f2- | \
+                        sed -E 's/SCORE: [0-9.]+//g' | \
+                        sed -E 's/(HSOURCE|ID|title|uri|tags|labels|extractous_metadata):[^|]*//g' | \
+                        sed -E 's/TEXT: //g' | \
+                        sed 's/|/ /g' | \
+                        sed 's/  */ /g' | \
+                        sed 's/^[[:space:]]*//;s/[[:space:]]*$//') 
+
+                    # 3. Decodificación Base64
+                    DECODIFICADO=$(echo "$CONTENIDO_LIMPIO" | base64 -d 2>/dev/null || echo "$CONTENIDO_LIMPIO") 
+
+                    # 4. Acumular con el formato visual que deseabas
+                    if [ -n "$VALOR_SCORE" ]; then 
+                        # Formato limpio: [FUENTE] | Contenido decodificado
+                        RESULTADOS_SIN_ORDENAR+="$VALOR_SCORE | [FUENTE: $NOMBRE_LIBRO] | $DECODIFICADO\n" 
+                    fi
+                fi
+
+
+
+            done <<< "$BUSQUEDA_RAW"
+
         fi
     done
-    
-    echo -e "---SOURCES---\n$FUENTES_CICLO\n---CONTEXT---\n$RESULTADOS_CICLO"
+    # Ordenar por SCORE de mayor a menor
+    echo -e "$RESULTADOS_SIN_ORDENAR" | sort -rn | head -n2 | cut -d'|' -f2-
 }
 
-# PASO 3: Lógica de Cascada (80% -> 60% -> 35%)
 echo "---KEYWORDS---"
 echo "$KEYWORDS"
+echo "---CONTEXT---"
 
-# Ciclo 1: Alta Precisión (0.80)
 FINAL_OUTPUT=$(ejecutar_busqueda "0.80")
-# CORRECCIÓN: Usamos grep -q para verificar contenido sin pasar por xargs 
-if ! echo -e "$FINAL_OUTPUT" | sed -n '/---CONTEXT---/,$p' | grep -v -- "---" | grep -q "SCORE:"; then
-    # Ciclo 2: Precisión Media (0.60)
-    FINAL_OUTPUT=$(ejecutar_busqueda "0.60")
-    if ! echo -e "$FINAL_OUTPUT" | sed -n '/---CONTEXT---/,$p' | grep -v -- "---" | grep -q "SCORE:"; then
-        # Ciclo 3: Búsqueda Permisiva (0.35)
-        FINAL_OUTPUT=$(ejecutar_busqueda "0.35")
-    fi
-fi
+[ -z "$FINAL_OUTPUT" ] && FINAL_OUTPUT=$(ejecutar_busqueda "0.60")
+[ -z "$FINAL_OUTPUT" ] && FINAL_OUTPUT=$(ejecutar_busqueda "0.35")
 
 echo -e "$FINAL_OUTPUT"

@@ -1,0 +1,57 @@
+#!/bin/bash
+# arca-atomic-search v1.7 - Ventana de Contexto Dinámica
+set -e
+source "$HOME/IA/arca.conf"
+
+ENGRAM_MV2="$HOME/IA/vectors/engram.mv2"
+MEMVID_BIN="/opt/arca/bin/memvid"
+
+[ -z "$1" ] && exit 0
+PREGUNTA="$1"
+
+# 1. Detección de recursos para la ventana de contexto 
+TOTAL_RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+if [ "$TOTAL_RAM_GB" -ge 15 ]; then
+    VENTANA_CONTEXTO=4096
+    NUM_RESULTADOS=2
+else
+    VENTANA_CONTEXTO=2048
+    NUM_RESULTADOS=1
+fi
+
+# 2. Keywords para búsqueda semántica
+KEYWORDS=$(ollama run arca-extractor "$PREGUNTA" 2>/dev/null | tr -d '*•-' | sed 's/[[:punct:]]//g' | xargs)
+[ -z "$KEYWORDS" ] && KEYWORDS="$PREGUNTA"
+
+ejecutar_busqueda() {
+    local UMBRAL=$1
+    local RESULTADOS=""
+
+    BUSQUEDA_RAW=$($MEMVID_BIN --db "$ENGRAM_MV2" --search "$KEYWORDS" --threshold "$UMBRAL" 2>/dev/null)
+    
+    if [ -n "$BUSQUEDA_RAW" ]; then
+        while read -r linea_limpia; do
+            SCORE=$(echo "$linea_limpia" | cut -d '|' -f1 | tr -d ' ')
+            META=$(echo "$linea_limpia" | cut -d '|' -f2 | sed 's/TEXT://' | xargs)
+            B64=$(echo "$linea_limpia" | cut -d '|' -f3 | tr -d ' ')
+
+            # Decodificación y limpieza
+            DECODIFICADO=$(echo "$B64" | base64 -d 2>/dev/null | tr -cd '\11\12\15\40-\176' | sed 's/+e$//')
+
+            if [ -n "$DECODIFICADO" ]; then
+                RESULTADOS+="$SCORE | Libro: $META | Contexto: $DECODIFICADO\n"
+            fi
+        done <<< "$(echo "$BUSQUEDA_RAW" | sed 's|SCORE: ||' | cut -d '|' -f 1,4,6)"
+    fi
+
+    # 3. Retornar resultados variables según recursos 
+    echo -e "$RESULTADOS" | sort -rn | head -n $NUM_RESULTADOS | cut -d'|' -f2-
+}
+
+echo "---CONTEXT---"
+# Intentos con umbrales en cascada
+SALIDA=$(ejecutar_busqueda "0.75")
+[ -z "$SALIDA" ] && SALIDA=$(ejecutar_busqueda "0.40")
+[ -z "$SALIDA" ] && SALIDA=$(ejecutar_busqueda "0.15")
+
+echo -e "$SALIDA"

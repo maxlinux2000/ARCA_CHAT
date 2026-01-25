@@ -1,0 +1,66 @@
+#!/bin/bash
+# arca-distiller v4.4 - Enfoque de Fragmentación Atómica Estricta
+source "$HOME/IA/arca.conf"
+
+VECTORES="$HOME/IA/vectors"
+ENGRAM_BASE="$VECTORES/engram_master"
+ENGRAM_MV2="$VECTORES/engram.mv2"
+MODELO_DESTILADOR="arca-distiller-brain"
+FPS=10 
+MAX_BYTES=1200 
+
+[ -z "$1" ] && echo "Uso: $0 <archivo_video.mp4>" && exit 1
+VIDEO_PATH=$(realpath "$1")
+ID_LIBRO=$(basename "$VIDEO_PATH" | sed 's/\.[^.]*$//' | tr ' ' '_')
+LIBRO_DIR="$ENGRAM_BASE/$ID_LIBRO"
+
+mkdir -p "$LIBRO_DIR"
+
+DURACION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$VIDEO_PATH")
+TOTAL_FRAMES=$(echo "$DURACION * $FPS" | bc | cut -d. -f1)
+
+echo "--- 🛡️  DESTILACIÓN ATÓMICA v4.4: $ID_LIBRO ---"
+
+for (( i=1; i<=$TOTAL_FRAMES; i++ )); do
+    TIME_SECONDS=$(echo "scale=2; $i / $FPS" | bc -l)
+    TEMP_FRAME="/tmp/distill_${ID_LIBRO}_$i.png"
+    
+    ffmpeg -y -ss "$TIME_SECONDS" -i "$VIDEO_PATH" -frames:v 1 "$TEMP_FRAME" -loglevel quiet >/dev/null 2>&1
+
+    if [ -f "$TEMP_FRAME" ]; then
+        RAW_TEXT=$(ZXingReader -1 "$TEMP_FRAME" 2>/dev/null | sed 's/^[^ ]* //' || echo "")
+        
+        if [ -n "$RAW_TEXT" ]; then
+            CLEAN_TEXT=$(echo "$RAW_TEXT" | python3 -c "import sys, re; print(re.sub(r'<U\+([0-9A-Fa-f]+)>', lambda m: chr(int(m.group(1), 16)), sys.stdin.read()).strip())")
+            
+            # 1. Inferencia con Prompt de Fragmentación Estricta
+            # Forzamos a la IA a actuar como un extractor de datos discretos
+            INSTRUCCION="Actúa como un extractor de datos atómicos. Convierte el siguiente texto en exactamente 5 hechos cortos, independientes y numerados. Sin introducciones ni conclusiones: $CLEAN_TEXT"
+            RESPUESTA_RAW=$(ollama run "$MODELO_DESTILADOR" "$INSTRUCCION" 2>/dev/null)
+            
+            # 2. Limpieza de formato y normalización
+            # Eliminamos numeración de lista (1., 2., etc.) y unificamos en una tira
+            RESPUESTA_IA=$(echo "$RESPUESTA_RAW" | sed -E 's/^[0-9]+[\.\)-] //g' | tr -d '\r' | tr '\n' ' ' | tr -s ' ' | sed 's/^[[:space:]]*//')
+
+            if [ -n "$RESPUESTA_IA" ]; then
+                # 3. Recorte de seguridad para no exceder límites de memvid
+                RESPUESTA_CORTA=$(echo -n "$RESPUESTA_IA" | cut -c 1-$MAX_BYTES)
+
+                # 4. Codificación Base64
+                B64_HECHO=$(echo -n "$RESPUESTA_CORTA" | base64 -w 0)
+                
+                # 5. Guardado con metadatos de tiempo
+                CHUNK_FILE="$LIBRO_DIR/$(printf "%06d" $i).txt"
+                printf "[%s | Sec: %s] | %s\n" "$ID_LIBRO" "$TIME_SECONDS" "$B64_HECHO" > "$CHUNK_FILE"
+                
+                echo "🧠 Sec $TIME_SECONDS: Átomos extraídos ($(echo -n "$RESPUESTA_CORTA" | wc -c) bytes)"
+            fi
+        fi
+        rm -f "$TEMP_FRAME"
+    fi
+done
+
+echo "--- ⚙️  REGENERANDO ÍNDICE MAESTRO ---"
+/opt/arca/bin/memvid --output-index "$ENGRAM_MV2" --input-dir "${ENGRAM_BASE}/${ID_LIBRO}"
+
+echo "✅ PROCESO COMPLETADO."

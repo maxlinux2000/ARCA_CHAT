@@ -13,7 +13,7 @@ mkdir -p "$HOME/IA/vectors" "$HOME/IA/docs" "$HOME/.local/bin"
 cp ./arca $HOME/.local/bin/
 cp ./arca-* $HOME/.local/bin/
 cp ./hunter $HOME/.local/bin/
-1
+
 chmod +x "$HOME/.local/bin/arca*"
 
 echo "✅ Instalación completada. Prueba con: arca"
