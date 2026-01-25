@@ -47,6 +47,7 @@ El sistema **ARCA** utiliza un proceso de destilación único para transformar d
 Primero, convertimos el documento original en un contenedor visual de alta densidad (MP4) que facilita el procesamiento por frames.
 ```bash
 arca-ingest /ruta/al/libro_estrategia.pdf
+```
 
 Salida: Se genera un archivo en ~/IA/vectors/libro_estrategia.mp4.
 
@@ -54,14 +55,17 @@ Salida: Se genera un archivo en ~/IA/vectors/libro_estrategia.mp4.
 
 Ejecutamos el destilador atómico. El sistema analiza el video frame a frame, utiliza Gemma 2B para sintetizar cada concepto y genera una base de datos de "átomos de conocimiento" en formato .mv2.
 
+```
 arca-distiller ~/IA/vectors/libro_estrategia.mp4
-
+```
 # Inicia el núcleo de chat
+```
 arca-chat
-
+```
 # O usa el modo debug para ver los engramas recuperados
+```
 arca-chat --debug
-
+```
 🧠 Arquitectura del Sistema
 
 Ingest	arca-ingest	Codifica PDFs en secuencias de video QR/Visual.
