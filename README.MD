@@ -26,10 +26,56 @@ El proceso se divide en tres etapas:
 2.  **Indexación (La Memoria del Arca):** Estos fragmentos se convierten en representaciones numéricas (*embeddings*) almacenadas en una base de datos vectorial local. Esto permite a la IA localizar información relevante en segundos.
 3.  **Consulta y Respuesta:** Al realizar una pregunta, el sistema busca los fragmentos más pertinentes en tu biblioteca y se los entrega al modelo de lenguaje local (`llama.cpp`) para generar una respuesta fundamentada únicamente en tus documentos.
 
-Conceptos Avanzados: Atomic-Search y Destilación con Doble IA
+El Flujo Operativo de ARCA
 
-La arquitectura de la Biblioteca del Arca implementa el concepto de Atomic-Search, un método de recuperación que descompone las consultas complejas en unidades mínimas de significado para garantizar que la IA localice el dato exacto, incluso en documentos de miles de páginas donde la semántica puede ser ambigua. Este proceso se potencia mediante una destilación con doble modelo de IA: un primer modelo "Maestro" de gran escala (ej. Llama 70b) se utiliza en una fase previa fuera de línea para etiquetar y destilar el conocimiento crítico de tu biblioteca hacia un modelo "Estudiante" más compacto y eficiente (ej. Mistral o Qwen 8b). Este flujo de doble modelo permite que el "Estudiante", que es el que reside físicamente en tu hardware local, mantenga una precisión técnica excepcional y una lógica de razonamiento superior sin necesidad de los recursos masivos del modelo original, eliminando alucinaciones y optimizando la velocidad de respuesta en el escenario offline del Arca.
+    Ingesta Genérica (arca-ingest): Se procesan los documentos (PDF/Texto) y se codifican visualmente para generar un video MP4. Este video sirve como el "contenedor" de la información íntegra tal como está en el libro de origen.
 
+    Destilación Atómica (arca-distiller): El sistema analiza el video frame a frame. Utiliza gemma2:2b (u otro modelo ligero) para interpretar los datos de cada QR/Frame y extraer átomos de conocimiento (síntesis corta y pura).
+
+    Indexación Maestro (engram.mv2): Estos átomos se guardan en archivos .txt (codificados en Base64) y se empaquetan en un único índice vectorial maestro: engram.mv2.
+
+    Consulta Inteligente (arca-chat): En lugar de navegar por toda la biblioteca de libros originales, el chat consulta exclusivamente la destilación. Esto garantiza respuestas técnicas, ultra-rápidas y libres de "paja" literaria.
+
+    Adaptabilidad de Recursos: El sistema detecta la RAM física para ajustar la ventana de contexto (2048 o 4096 tokens) y el número de átomos (2 o 3) que la IA puede "recordar" simultáneamente.
+
+Ejemplo:
+## 🚀 Flujo de Trabajo: De PDF a Memoria Atómica
+
+El sistema **ARCA** utiliza un proceso de destilación único para transformar documentos densos en engramas tácticos consultables en tiempo real.
+
+### 1. Ingesta (Generación de Vídeo MP4)
+Primero, convertimos el documento original en un contenedor visual de alta densidad (MP4) que facilita el procesamiento por frames.
+```bash
+arca-ingest /ruta/al/libro_estrategia.pdf
+
+Salida: Se genera un archivo en ~/IA/vectors/libro_estrategia.mp4.
+
+2. Destilación (Extracción de Engramas)
+
+Ejecutamos el destilador atómico. El sistema analiza el video frame a frame, utiliza Gemma 2B para sintetizar cada concepto y genera una base de datos de "átomos de conocimiento" en formato .mv2.
+
+arca-distiller ~/IA/vectors/libro_estrategia.mp4
+
+# Inicia el núcleo de chat
+arca-chat
+
+# O usa el modo debug para ver los engramas recuperados
+arca-chat --debug
+
+🧠 Arquitectura del Sistema
+
+Ingest	arca-ingest	Codifica PDFs en secuencias de video QR/Visual.
+Distill	arca-distiller	Síntesis IA de frames y guardado en Base64.
+Search	arca-atomic-search	Búsqueda vectorial ultra-rápida en engram.mv2.
+Chat	arca-chat	Interfaz de operador con contexto dinámico según RAM.
+
+Nota de eficiencia: ARCA no lee el libro completo en cada pregunta; consulta directamente los átomos destilados, lo que permite respuestas técnicas y precisas en segundos.
+
+📦 Instalación en Debian y Derivados
+
+La implementación del ecosistema ARCA está diseñada para ser modular y sencilla, ideal para entornos sin conexión permanente a internet. El proceso de despliegue se realiza ejecutando una secuencia lógica de scripts numerados que preparan desde las dependencias básicas hasta el entorno de ejecución de la IA.
+
+Para instalar el sistema completo, simplemente ejecuta los scripts del 1 al 6 en orden secuencial desde tu terminal:
 
 ---
 
